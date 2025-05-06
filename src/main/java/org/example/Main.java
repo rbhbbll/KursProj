@@ -7,5 +7,6 @@ public class Main {
         SwingUtilities.invokeLater(() -> {
             new LoginWindow(dbManager).setVisible(true);
         });
+        // test commit from master branch
     }
 }
