@@ -1,5 +1,5 @@
 package org.example;
-import javax.swing.*;
+
 import javax.swing.*;
 
 public class Main {
