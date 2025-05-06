@@ -7,5 +7,6 @@ public class Main {
         SwingUtilities.invokeLater(() -> {
             new LoginWindow(dbManager).setVisible(true);
         });
+        // ddddds
     }
 }
