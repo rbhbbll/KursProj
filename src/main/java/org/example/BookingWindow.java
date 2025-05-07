@@ -3,72 +3,48 @@ package org.example;
 import javax.swing.*;
 import java.awt.*;
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 
 public class BookingWindow extends JPanel {
     private final DatabaseManager dbManager;
     private final User user;
-    private JComboBox<Integer> clientCombo;
-    private JComboBox<Integer> tourCombo;
+    private JTextField clientIdField, tourIdField;
 
     public BookingWindow(DatabaseManager dbManager, User user) {
         this.dbManager = dbManager;
         this.user = user;
-        setLayout(new GridLayout(4, 2, 10, 10));
-        setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        setLayout(new BorderLayout());
 
-        clientCombo = new JComboBox<>();
-        tourCombo = new JComboBox<>();
-        loadComboBoxes();
+        JPanel panel = new JPanel(new GridLayout(3, 2, 10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-        add(new JLabel("Client ID:"));
-        add(clientCombo);
-        add(new JLabel("Tour ID:"));
-        add(tourCombo);
+        panel.add(new JLabel("ID клиента:"));
+        clientIdField = new JTextField();
+        panel.add(clientIdField);
 
-        JButton submitButton = new JButton("Submit");
+        panel.add(new JLabel("ID тура:"));
+        tourIdField = new JTextField();
+        panel.add(tourIdField);
+
+        JButton submitButton = new JButton("Подтвердить");
         submitButton.addActionListener(e -> submitBooking());
-        add(submitButton);
+        panel.add(submitButton);
 
-        if (user.isAdmin()) {
-            loadComboBox(clientCombo, "SELECT id FROM public.clients");
-        } else {
-            clientCombo.addItem(user.getId());
-        }
-    }
-
-    private void loadComboBoxes() {
-        loadComboBox(clientCombo, "SELECT id FROM public.clients");
-        loadComboBox(tourCombo, "SELECT id FROM public.tours");
-    }
-
-    private void loadComboBox(JComboBox<Integer> comboBox, String query) {
-        comboBox.removeAllItems();
-        try (Connection conn = dbManager.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(query)) {
-            while (rs.next()) {
-                comboBox.addItem(rs.getInt(1));
-            }
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this, "Error loading data: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-        }
+        add(panel, BorderLayout.CENTER);
     }
 
     private void submitBooking() {
-        int clientId = (Integer) clientCombo.getSelectedItem();
-        int tourId = (Integer) tourCombo.getSelectedItem();
-        if (clientId != 0 && tourId != 0) {
-            try {
-                dbManager.makeBooking(clientId, tourId);
-                JOptionPane.showMessageDialog(this, "Booking added successfully!");
-            } catch (SQLException ex) {
-                JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            }
-        } else {
-            JOptionPane.showMessageDialog(this, "Please select valid Client ID and Tour ID.", "Error", JOptionPane.ERROR_MESSAGE);
+        try (Connection conn = dbManager.getConnection()) {
+            int clientId = Integer.parseInt(clientIdField.getText());
+            int tourId = Integer.parseInt(tourIdField.getText());
+
+            dbManager.makeBooking(conn, clientId, tourId);
+            conn.commit();
+            JOptionPane.showMessageDialog(this, "Бронирование успешно создано!", "Успех", JOptionPane.INFORMATION_MESSAGE);
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this, "Ошибка: " + ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Пожалуйста, введите корректные числа для ID клиента и ID тура.", "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
     }
 }

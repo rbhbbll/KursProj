@@ -1,8 +1,8 @@
 package org.example;
 
-
 import javax.swing.*;
 import java.awt.*;
+import java.sql.Connection;
 import java.sql.SQLException;
 
 public class InitialWindow extends JFrame {
@@ -13,7 +13,7 @@ public class InitialWindow extends JFrame {
 
     public InitialWindow(DatabaseManager dbManager) {
         this.dbManager = dbManager;
-        setTitle("Register or Log In");
+        setTitle("Регистрация или вход");
         setSize(300, 200);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -21,19 +21,19 @@ public class InitialWindow extends JFrame {
         JPanel panel = new JPanel(new GridLayout(4, 2, 10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-        panel.add(new JLabel("Username:"));
+        panel.add(new JLabel("Имя пользователя:"));
         usernameField = new JTextField();
         panel.add(usernameField);
 
-        panel.add(new JLabel("Password:"));
+        panel.add(new JLabel("Пароль:"));
         passwordField = new JPasswordField();
         panel.add(passwordField);
 
-        panel.add(new JLabel("Role:"));
-        roleCombo = new JComboBox<>(new String[]{"admin", "client"});
+        panel.add(new JLabel("Роль:"));
+        roleCombo = new JComboBox<>(new String[]{"администратор", "клиент"});
         panel.add(roleCombo);
 
-        JButton submitButton = new JButton("Submit");
+        JButton submitButton = new JButton("Подтвердить");
         submitButton.addActionListener(e -> handleSubmit());
         panel.add(submitButton);
 
@@ -46,30 +46,30 @@ public class InitialWindow extends JFrame {
         String role = (String) roleCombo.getSelectedItem();
 
         if (username.isEmpty() || password.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "Username and password are required.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Имя пользователя и пароль обязательны.", "Ошибка", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        try {
+        try (Connection conn = dbManager.getConnection()) {
             User existingUser = dbManager.authenticateUser(username, password);
             if (existingUser != null) {
-                // User exists, proceed to MainWindow
                 dispose();
                 new MainWindow(dbManager, existingUser).setVisible(true);
+                conn.commit();
             } else {
-                // Register new user
-                dbManager.registerUser(username, password, role);
+                dbManager.registerUser(conn, username, password, role);
                 User newUser = dbManager.authenticateUser(username, password);
                 if (newUser != null) {
-                    JOptionPane.showMessageDialog(this, "User registered successfully! Logging in...", "Success", JOptionPane.INFORMATION_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Пользователь успешно зарегистрирован! Вход...", "Успех", JOptionPane.INFORMATION_MESSAGE);
                     dispose();
                     new MainWindow(dbManager, newUser).setVisible(true);
                 } else {
-                    JOptionPane.showMessageDialog(this, "Registration failed. Please try again.", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Регистрация не удалась. Попробуйте снова.", "Ошибка", JOptionPane.ERROR_MESSAGE);
                 }
+                conn.commit();
             }
         } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this, "Database error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Ошибка базы данных: " + ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
     }
 }

@@ -5,101 +5,106 @@ import java.awt.*;
 import java.sql.Connection;
 import java.sql.CallableStatement;
 import java.sql.SQLException;
+import java.sql.Date;
 
-public class ClientWindow extends JFrame {
+public class ClientWindow extends JPanel {
     private final DatabaseManager dbManager;
     private JTextField fullNameField, phoneField, emailField, passportField, birthDateField, usernameField, passwordField;
     private JCheckBox registerNewUserCheckBox;
 
     public ClientWindow(DatabaseManager dbManager) {
         this.dbManager = dbManager;
-        setTitle("Add Client");
-        setSize(400, 400);
-        setLocationRelativeTo(null);
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        setLayout(new BorderLayout());
 
         JPanel panel = new JPanel(new GridLayout(9, 2, 10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-        panel.add(new JLabel("Full Name:"));
+        panel.add(new JLabel("ФИО:"));
         fullNameField = new JTextField();
         panel.add(fullNameField);
 
-        panel.add(new JLabel("Phone:"));
+        panel.add(new JLabel("Телефон:"));
         phoneField = new JTextField();
         panel.add(phoneField);
 
-        panel.add(new JLabel("Email:"));
+        panel.add(new JLabel("Электронная почта:"));
         emailField = new JTextField();
         panel.add(emailField);
 
-        panel.add(new JLabel("Passport Number:"));
+        panel.add(new JLabel("Номер паспорта:"));
         passportField = new JTextField();
         panel.add(passportField);
 
-        panel.add(new JLabel("Birth Date (YYYY-MM-DD):"));
+        panel.add(new JLabel("Дата рождения (ГГГГ-ММ-ДД):"));
         birthDateField = new JTextField();
         panel.add(birthDateField);
 
-        panel.add(new JLabel("Username (for new user):"));
+        panel.add(new JLabel("Имя пользователя (для нового):"));
         usernameField = new JTextField();
         panel.add(usernameField);
 
-        panel.add(new JLabel("Password (for new user):"));
+        panel.add(new JLabel("Пароль (для нового):"));
         passwordField = new JPasswordField();
         panel.add(passwordField);
 
-        registerNewUserCheckBox = new JCheckBox("Register as new user (role: client)");
+        registerNewUserCheckBox = new JCheckBox("Зарегистрировать как нового пользователя (роль: клиент)");
         panel.add(registerNewUserCheckBox);
 
-        JButton submitButton = new JButton("Submit");
+        JButton submitButton = new JButton("Подтвердить");
         submitButton.addActionListener(e -> submitClient());
         panel.add(submitButton);
 
-        add(panel);
+        add(panel, BorderLayout.CENTER);
     }
 
     private void submitClient() {
-        try {
+        try (Connection conn = dbManager.getConnection()) {
             String fullName = fullNameField.getText();
             String phone = phoneField.getText();
             String email = emailField.getText();
             String passport = passportField.getText();
-            String birthDate = birthDateField.getText();
+            String birthDateStr = birthDateField.getText();
+
+            Date birthDate = null;
+            try {
+                birthDate = Date.valueOf(birthDateStr);
+            } catch (IllegalArgumentException ex) {
+                JOptionPane.showMessageDialog(this, "Неверный формат даты. Используйте ГГГГ-ММ-ДД.", "Ошибка", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
 
             if (registerNewUserCheckBox.isSelected()) {
                 String username = usernameField.getText();
                 String password = new String(((JPasswordField) passwordField).getPassword());
                 if (username.isEmpty() || password.isEmpty()) {
-                    JOptionPane.showMessageDialog(this, "Username and password are required for new user registration.", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, "Имя пользователя и пароль обязательны для регистрации нового пользователя.", "Ошибка", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                dbManager.registerUser(username, password, "client");
-                try (Connection conn = dbManager.getConnection();
-                     CallableStatement cstmt = conn.prepareCall("{CALL public.register_new_client(?, ?, ?, ?, ?)}")) {
+                dbManager.registerUser(conn, username, password, "client");
+                try (CallableStatement cstmt = conn.prepareCall("CALL public.register_new_client(?, ?, ?, ?, ?)")) {
                     cstmt.setString(1, fullName);
                     cstmt.setString(2, phone);
                     cstmt.setString(3, email);
                     cstmt.setString(4, passport);
-                    cstmt.setString(5, birthDate);
+                    cstmt.setDate(5, birthDate);
                     cstmt.execute();
                 }
-                JOptionPane.showMessageDialog(this, "Client and user registered successfully! You can now log in with username: " + username, "Success", JOptionPane.INFORMATION_MESSAGE);
+                conn.commit();
+                JOptionPane.showMessageDialog(this, "Клиент и пользователь успешно зарегистрированы! Теперь можно войти с именем: " + username, "Успех", JOptionPane.INFORMATION_MESSAGE);
             } else {
-                try (Connection conn = dbManager.getConnection();
-                     CallableStatement cstmt = conn.prepareCall("{CALL public.register_new_client(?, ?, ?, ?, ?)}")) {
+                try (CallableStatement cstmt = conn.prepareCall("CALL public.register_new_client(?, ?, ?, ?, ?)")) {
                     cstmt.setString(1, fullName);
                     cstmt.setString(2, phone);
                     cstmt.setString(3, email);
                     cstmt.setString(4, passport);
-                    cstmt.setString(5, birthDate);
+                    cstmt.setDate(5, birthDate);
                     cstmt.execute();
                 }
-                JOptionPane.showMessageDialog(this, "Client added successfully!");
+                conn.commit();
+                JOptionPane.showMessageDialog(this, "Клиент успешно добавлен!", "Успех", JOptionPane.INFORMATION_MESSAGE);
             }
-            dispose();
         } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Ошибка: " + ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
     }
 }
