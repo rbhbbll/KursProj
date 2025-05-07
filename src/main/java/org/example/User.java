@@ -19,11 +19,7 @@ public class User {
         return username;
     }
 
-    public String getRole() {
-        return role;
-    }
-
     public boolean isAdmin() {
-        return "admin".equalsIgnoreCase(role);
+        return "admin".equals(role);
     }
 }

@@ -8,16 +8,17 @@ import java.sql.SQLException;
 
 public class ClientWindow extends JFrame {
     private final DatabaseManager dbManager;
-    private JTextField fullNameField, phoneField, emailField, passportField, birthDateField;
+    private JTextField fullNameField, phoneField, emailField, passportField, birthDateField, usernameField, passwordField;
+    private JCheckBox registerNewUserCheckBox;
 
     public ClientWindow(DatabaseManager dbManager) {
         this.dbManager = dbManager;
         setTitle("Add Client");
-        setSize(400, 300);
+        setSize(400, 400);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 
-        JPanel panel = new JPanel(new GridLayout(6, 2, 10, 10));
+        JPanel panel = new JPanel(new GridLayout(9, 2, 10, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
         panel.add(new JLabel("Full Name:"));
@@ -40,6 +41,17 @@ public class ClientWindow extends JFrame {
         birthDateField = new JTextField();
         panel.add(birthDateField);
 
+        panel.add(new JLabel("Username (for new user):"));
+        usernameField = new JTextField();
+        panel.add(usernameField);
+
+        panel.add(new JLabel("Password (for new user):"));
+        passwordField = new JPasswordField();
+        panel.add(passwordField);
+
+        registerNewUserCheckBox = new JCheckBox("Register as new user (role: client)");
+        panel.add(registerNewUserCheckBox);
+
         JButton submitButton = new JButton("Submit");
         submitButton.addActionListener(e -> submitClient());
         panel.add(submitButton);
@@ -55,17 +67,37 @@ public class ClientWindow extends JFrame {
             String passport = passportField.getText();
             String birthDate = birthDateField.getText();
 
-            try (Connection conn = dbManager.getConnection();
-                 CallableStatement cstmt = conn.prepareCall("{CALL public.register_new_client(?, ?, ?, ?, ?)}")) {
-                cstmt.setString(1, fullName);
-                cstmt.setString(2, phone);
-                cstmt.setString(3, email);
-                cstmt.setString(4, passport);
-                cstmt.setString(5, birthDate);
-                cstmt.execute();
+            if (registerNewUserCheckBox.isSelected()) {
+                String username = usernameField.getText();
+                String password = new String(((JPasswordField) passwordField).getPassword());
+                if (username.isEmpty() || password.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Username and password are required for new user registration.", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                dbManager.registerUser(username, password, "client");
+                try (Connection conn = dbManager.getConnection();
+                     CallableStatement cstmt = conn.prepareCall("{CALL public.register_new_client(?, ?, ?, ?, ?)}")) {
+                    cstmt.setString(1, fullName);
+                    cstmt.setString(2, phone);
+                    cstmt.setString(3, email);
+                    cstmt.setString(4, passport);
+                    cstmt.setString(5, birthDate);
+                    cstmt.execute();
+                }
+                JOptionPane.showMessageDialog(this, "Client and user registered successfully! You can now log in with username: " + username, "Success", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                try (Connection conn = dbManager.getConnection();
+                     CallableStatement cstmt = conn.prepareCall("{CALL public.register_new_client(?, ?, ?, ?, ?)}")) {
+                    cstmt.setString(1, fullName);
+                    cstmt.setString(2, phone);
+                    cstmt.setString(3, email);
+                    cstmt.setString(4, passport);
+                    cstmt.setString(5, birthDate);
+                    cstmt.execute();
+                }
                 JOptionPane.showMessageDialog(this, "Client added successfully!");
-                dispose();
             }
+            dispose();
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
