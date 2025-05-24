@@ -4,6 +4,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Objects;
 
 public class InitialWindow extends JFrame {
     private final DatabaseManager dbManager;
@@ -43,7 +44,7 @@ public class InitialWindow extends JFrame {
     private void handleSubmit() {
         String username = usernameField.getText();
         String password = new String(passwordField.getPassword());
-        String role = (String) roleCombo.getSelectedItem();
+        String role = selectRole();
 
         if (username.isEmpty() || password.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Имя пользователя и пароль обязательны.", "Ошибка", JOptionPane.ERROR_MESSAGE);
@@ -71,5 +72,17 @@ public class InitialWindow extends JFrame {
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, "Ошибка базы данных: " + ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private String selectRole() {
+        String role = (String) roleCombo.getSelectedItem();
+        if(Objects.equals(role, "администратор")){
+            role = "admin";
+        } else if (Objects.equals(role, "клиент")) {
+            role = "client";
+        }else {
+            throw new IllegalArgumentException("Unknown role: " + role);
+        }
+        return role;
     }
 }
