@@ -17,10 +17,17 @@ public class MainWindow extends JFrame {
 
         JTabbedPane tabbedPane = new JTabbedPane();
 
-        tabbedPane.addTab("Просмотр данных", new ViewDataPanel(dbManager, user));
-        tabbedPane.addTab("Добавить клиента", new ClientWindow(dbManager));
-        tabbedPane.addTab("Добавить тур", new TourWindow(dbManager));
-        tabbedPane.addTab("Сделать бронирование", new BookingWindow(dbManager, user));
+        // Добавляем вкладки в зависимости от роли
+        if ("admin".equals(user.getRole())) {
+            tabbedPane.addTab("Просмотр данных", new ViewDataPanel(dbManager, user));
+            tabbedPane.addTab("Добавить клиента", new ClientWindow(dbManager));
+            tabbedPane.addTab("Добавить тур", new TourWindow(dbManager));
+            tabbedPane.addTab("Сделать бронирование", new BookingWindow(dbManager, user));
+        } else {
+            // Для клиентов показываем только просмотр туров и бронирование
+            tabbedPane.addTab("Доступные туры", new ViewDataPanel(dbManager, user));
+            tabbedPane.addTab("Сделать бронирование", new BookingWindow(dbManager, user));
+        }
 
         add(tabbedPane);
     }

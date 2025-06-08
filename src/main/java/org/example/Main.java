@@ -9,7 +9,7 @@ public class Main {
         DatabaseManager dbManager = new DatabaseManager();
         LafManager.install();
         SwingUtilities.invokeLater(() -> {
-            new InitialWindow(dbManager).setVisible(true);
+            new LoginWindow(dbManager).setVisible(true);
         });
     }
 }
