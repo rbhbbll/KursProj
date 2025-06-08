@@ -31,7 +31,18 @@ public class ViewDataPanel extends JPanel {
                               "JOIN public.locations l ON t.location_id = l.id";
             
             tabbedPane.addTab("Туры", createTablePanel(toursQuery, "tours"));
-            tabbedPane.addTab("Бронирования", createTablePanel("SELECT * FROM public.bookings", "bookings"));
+
+            // Модифицированный запрос для отображения бронирований с именами клиентов и названиями туров
+            String bookingsQuery = "SELECT b.id, " +
+                                 "c.full_name AS client_name, " +
+                                 "t.name AS tour_name, " +
+                                 "b.booking_date, " +
+                                 "b.total_price " +
+                                 "FROM public.bookings b " +
+                                 "JOIN public.clients c ON b.client_id = c.id " +
+                                 "JOIN public.tours t ON b.tour_id = t.id";
+            
+            tabbedPane.addTab("Бронирования", createTablePanel(bookingsQuery, "bookings"));
             add(tabbedPane, BorderLayout.CENTER);
         } else {
             // Для клиентов показываем только информацию о турах
@@ -80,6 +91,28 @@ public class ViewDataPanel extends JPanel {
                             break;
                         case "price":
                             columnNames.set(i, "Общая цена");
+                            break;
+                    }
+                }
+            }
+            // Переименовываем заголовки столбцов для таблицы бронирований
+            else if ("bookings".equals(tableName)) {
+                for (int i = 0; i < columnNames.size(); i++) {
+                    switch (columnNames.get(i)) {
+                        case "id":
+                            columnNames.set(i, "ID бронирования");
+                            break;
+                        case "client_name":
+                            columnNames.set(i, "Клиент");
+                            break;
+                        case "tour_name":
+                            columnNames.set(i, "Тур");
+                            break;
+                        case "booking_date":
+                            columnNames.set(i, "Дата бронирования");
+                            break;
+                        case "total_price":
+                            columnNames.set(i, "Итоговая цена");
                             break;
                     }
                 }
