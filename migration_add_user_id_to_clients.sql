@@ -19,3 +19,4 @@ CREATE INDEX idx_clients_user_id ON public.clients(user_id);
 
 -- Комментарий: После выполнения этой миграции все новые клиенты должны регистрироваться 
 -- через новый метод registerClientWithUser, который автоматически создает связь между user и client
+

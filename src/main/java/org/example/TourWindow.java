@@ -5,6 +5,8 @@ import java.awt.*;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 public class TourWindow extends JPanel {
     private final DatabaseManager dbManager;
@@ -12,41 +14,90 @@ public class TourWindow extends JPanel {
     private JComboBox<String> typeCombo, locationCombo;
     private Map<String, Integer> tourTypeIds = new HashMap<>();
     private Map<String, Integer> locationIds = new HashMap<>();
+    private Map<String, Integer> serviceIds = new HashMap<>();
+    private Map<String, Integer> attractionIds = new HashMap<>();
+    private JList<String> servicesList;
+    private JList<String> attractionsList;
+    private DefaultListModel<String> servicesModel;
+    private DefaultListModel<String> attractionsModel;
 
     public TourWindow(DatabaseManager dbManager) {
         this.dbManager = dbManager;
         setLayout(new BorderLayout());
 
-        JPanel panel = new JPanel(new GridLayout(6, 2, 10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-        panel.add(new JLabel("Название:"));
+        // Основные поля тура
+        JPanel basicFieldsPanel = new JPanel(new GridLayout(5, 2, 10, 10));
+        
+        basicFieldsPanel.add(new JLabel("Название:"));
         nameField = new JTextField();
-        panel.add(nameField);
+        basicFieldsPanel.add(nameField);
 
-        panel.add(new JLabel("Тип тура:"));
+        basicFieldsPanel.add(new JLabel("Тип тура:"));
         typeCombo = new JComboBox<>();
         loadTourTypes();
-        panel.add(typeCombo);
+        basicFieldsPanel.add(typeCombo);
 
-        panel.add(new JLabel("Локация:"));
+        basicFieldsPanel.add(new JLabel("Локация:"));
         locationCombo = new JComboBox<>();
         loadLocations();
-        panel.add(locationCombo);
+        basicFieldsPanel.add(locationCombo);
 
-        panel.add(new JLabel("Цена за день:"));
+        basicFieldsPanel.add(new JLabel("Цена за день:"));
         priceField = new JTextField();
-        panel.add(priceField);
+        basicFieldsPanel.add(priceField);
 
-        panel.add(new JLabel("Дни:"));
+        basicFieldsPanel.add(new JLabel("Дни:"));
         daysField = new JTextField();
-        panel.add(daysField);
+        basicFieldsPanel.add(daysField);
 
+        mainPanel.add(basicFieldsPanel, BorderLayout.NORTH);
+
+        // Панель выбора сервисов и достопримечательностей
+        JPanel selectionPanel = new JPanel(new GridLayout(1, 2, 10, 10));
+        
+        // Панель выбора сервисов
+        JPanel servicesPanel = new JPanel(new BorderLayout());
+        servicesPanel.setBorder(BorderFactory.createTitledBorder("Выберите услуги"));
+        
+        servicesModel = new DefaultListModel<>();
+        servicesList = new JList<>(servicesModel);
+        servicesList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        servicesList.setCellRenderer(new CheckboxListCellRenderer());
+        
+        loadServices();
+        
+        JScrollPane servicesScrollPane = new JScrollPane(servicesList);
+        servicesScrollPane.setPreferredSize(new Dimension(300, 150));
+        servicesPanel.add(servicesScrollPane, BorderLayout.CENTER);
+
+        // Панель выбора достопримечательностей
+        JPanel attractionsPanel = new JPanel(new BorderLayout());
+        attractionsPanel.setBorder(BorderFactory.createTitledBorder("Выберите достопримечательности"));
+        
+        attractionsModel = new DefaultListModel<>();
+        attractionsList = new JList<>(attractionsModel);
+        attractionsList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        attractionsList.setCellRenderer(new CheckboxListCellRenderer());
+        
+        loadAttractions();
+        
+        JScrollPane attractionsScrollPane = new JScrollPane(attractionsList);
+        attractionsScrollPane.setPreferredSize(new Dimension(300, 150));
+        attractionsPanel.add(attractionsScrollPane, BorderLayout.CENTER);
+
+        selectionPanel.add(servicesPanel);
+        selectionPanel.add(attractionsPanel);
+        mainPanel.add(selectionPanel, BorderLayout.CENTER);
+
+        // Кнопка подтверждения
         JButton submitButton = new JButton("Подтвердить");
         submitButton.addActionListener(e -> submitTour());
-        panel.add(submitButton);
+        mainPanel.add(submitButton, BorderLayout.SOUTH);
 
-        add(panel, BorderLayout.CENTER);
+        add(mainPanel, BorderLayout.CENTER);
     }
 
     private void loadTourTypes() {
@@ -90,8 +141,50 @@ public class TourWindow extends JPanel {
         }
     }
 
+    private void loadServices() {
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT id, name, price FROM public.services ORDER BY name")) {
+            
+            while (rs.next()) {
+                int id = rs.getInt("id");
+                String name = rs.getString("name");
+                double price = rs.getDouble("price");
+                String displayName = String.format("%s (%.2f руб.)", name, price);
+                
+                serviceIds.put(displayName, id);
+                servicesModel.addElement(displayName);
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this, 
+                "Ошибка при загрузке сервисов: " + ex.getMessage(), 
+                "Ошибка", 
+                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void loadAttractions() {
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT id, name FROM public.attractions ORDER BY name")) {
+            
+            while (rs.next()) {
+                int id = rs.getInt("id");
+                String name = rs.getString("name");
+                
+                attractionIds.put(name, id);
+                attractionsModel.addElement(name);
+            }
+        } catch (SQLException ex) {
+            JOptionPane.showMessageDialog(this, 
+                "Ошибка при загрузке достопримечательностей: " + ex.getMessage(), 
+                "Ошибка", 
+                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private void submitTour() {
-        try (Connection conn = dbManager.getConnection()) {
+        try {
             String name = nameField.getText();
             String selectedType = (String) typeCombo.getSelectedItem();
             String selectedLocation = (String) locationCombo.getSelectedItem();
@@ -120,33 +213,63 @@ public class TourWindow extends JPanel {
                 return;
             }
 
-            try (CallableStatement cstmt = conn.prepareCall("CALL public.add_new_tour(?, ?, ?, ?, ?)")) {
-                cstmt.setString(1, name);
-                cstmt.setInt(2, typeId);
-                cstmt.setInt(3, locationId);
-                cstmt.setDouble(4, price);
-                cstmt.setInt(5, days);
-                cstmt.execute();
+            // Получаем выбранные сервисы
+            List<Integer> selectedServiceIds = new ArrayList<>();
+            for (int i = 0; i < servicesList.getModel().getSize(); i++) {
+                if (servicesList.isSelectedIndex(i)) {
+                    String serviceDisplayName = servicesList.getModel().getElementAt(i);
+                    selectedServiceIds.add(serviceIds.get(serviceDisplayName));
+                }
             }
 
-            conn.commit();
+            // Получаем выбранные достопримечательности
+            List<Integer> selectedAttractionIds = new ArrayList<>();
+            for (int i = 0; i < attractionsList.getModel().getSize(); i++) {
+                if (attractionsList.isSelectedIndex(i)) {
+                    String attractionName = attractionsList.getModel().getElementAt(i);
+                    selectedAttractionIds.add(attractionIds.get(attractionName));
+                }
+            }
+
+            // Преобразуем в массивы объектов
+            Integer[] serviceIdsArray = selectedServiceIds.toArray(new Integer[0]);
+            Integer[] attractionIdsArray = selectedAttractionIds.toArray(new Integer[0]);
+
+            // Используем новый метод добавления тура
+            dbManager.addTour(name, typeId, locationId, price, days, serviceIdsArray, attractionIdsArray);
+
             JOptionPane.showMessageDialog(this, 
                 "Тур успешно добавлен!", 
                 "Успех", 
                 JOptionPane.INFORMATION_MESSAGE);
 
-            // Clear fields after successful submission
+            // Очищаем поля после успешного добавления
             nameField.setText("");
             priceField.setText("");
             daysField.setText("");
             typeCombo.setSelectedIndex(0);
             locationCombo.setSelectedIndex(0);
+            servicesList.clearSelection();
+            attractionsList.clearSelection();
 
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, 
                 "Ошибка при добавлении тура: " + ex.getMessage(), 
                 "Ошибка", 
                 JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // Внутренний класс для отображения чекбоксов в списке
+    private static class CheckboxListCellRenderer extends JCheckBox implements ListCellRenderer<String> {
+        @Override
+        public Component getListCellRendererComponent(JList<? extends String> list, String value, int index,
+                boolean isSelected, boolean cellHasFocus) {
+            setText(value);
+            setSelected(isSelected);
+            setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+            setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+            return this;
         }
     }
 }

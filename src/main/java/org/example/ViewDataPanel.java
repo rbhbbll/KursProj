@@ -21,11 +21,12 @@ public class ViewDataPanel extends JPanel {
             tabbedPane.addTab("Пользователи", createTablePanel("SELECT * FROM public.users", "users"));
             tabbedPane.addTab("Клиенты", createTablePanel("SELECT * FROM public.clients", "clients"));
             
-            // Модифицированный запрос для отображения туров с названиями типов и локаций
+            // Модифицированный запрос для отображения туров с названиями типов, локаций и услугами
             String toursQuery = "SELECT t.id, t.name, " +
                               "tt.name AS tour_type, " +
                               "CONCAT(l.country, ', ', l.city, ' - ', l.place_name) AS location, " +
-                              "t.price_per_day, t.days, t.price " +
+                              "t.price_per_day, t.days, t.price, " +
+                              "ARRAY_TO_STRING((SELECT ARRAY_AGG(s.service_name) FROM get_tour_services(t.id) s), ', ') AS services " +
                               "FROM public.tours t " +
                               "JOIN public.tour_types tt ON t.tour_type_id = tt.id " +
                               "JOIN public.locations l ON t.location_id = l.id";
@@ -92,6 +93,9 @@ public class ViewDataPanel extends JPanel {
                         case "price":
                             columnNames.set(i, "Общая цена");
                             break;
+                        case "services":
+                            columnNames.set(i, "Услуги");
+                            break;
                     }
                 }
             }
@@ -153,7 +157,7 @@ public class ViewDataPanel extends JPanel {
             searchPanel.add(searchField);
             topPanel.add(searchPanel, BorderLayout.WEST);
 
-            // Добавляем кнопку удаления для клиентов
+            // Добавляем кнопки удаления для клиентов и туров
             if ("clients".equals(tableName)) {
                 JButton deleteButton = new JButton("Удалить клиента");
                 deleteButton.addActionListener(e -> {
@@ -200,6 +204,55 @@ public class ViewDataPanel extends JPanel {
                 });
                 JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
                 buttonPanel.add(deleteButton);
+                topPanel.add(buttonPanel, BorderLayout.EAST);
+            }
+            
+            // Добавляем кнопку удаления для туров (только для администраторов)
+            if ("tours".equals(tableName) && "admin".equals(user.getRole())) {
+                JButton deleteTourButton = new JButton("Удалить тур");
+                deleteTourButton.addActionListener(e -> {
+                    int selectedRow = table.getSelectedRow();
+                    if (selectedRow == -1) {
+                        JOptionPane.showMessageDialog(this, 
+                            "Выберите тур для удаления", 
+                            "Предупреждение", 
+                            JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+
+                    int tourId = ((Number) table.getValueAt(selectedRow, 0)).intValue();
+                    String tourName = table.getValueAt(selectedRow, 1).toString();
+                    
+                    int confirm = JOptionPane.showConfirmDialog(this,
+                        "Вы уверены, что хотите удалить тур '" + tourName + "'?\n\n" +
+                        "ВНИМАНИЕ: Это действие удалит тур и все связанные с ним данные!",
+                        "Подтверждение удаления тура",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+
+                    if (confirm == JOptionPane.YES_OPTION) {
+                        try {
+                            boolean deleted = dbManager.deleteTour(tourId, user.getId(), user.getRole());
+                            if (deleted) {
+                                // Refresh the table data
+                                Vector<Vector<Object>> newData = dbManager.getTableData(query);
+                                table.setModel(new DefaultTableModel(newData, columnNames));
+                                
+                                JOptionPane.showMessageDialog(this,
+                                    "Тур '" + tourName + "' успешно удален",
+                                    "Успех",
+                                    JOptionPane.INFORMATION_MESSAGE);
+                            }
+                        } catch (SQLException ex) {
+                            JOptionPane.showMessageDialog(this,
+                                "Ошибка при удалении тура: " + ex.getMessage(),
+                                "Ошибка",
+                                JOptionPane.ERROR_MESSAGE);
+                        }
+                    }
+                });
+                JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+                buttonPanel.add(deleteTourButton);
                 topPanel.add(buttonPanel, BorderLayout.EAST);
             }
 

@@ -5,6 +5,8 @@ import java.awt.*;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 public class BookingWindow extends JPanel {
     private final DatabaseManager dbManager;
@@ -12,116 +14,96 @@ public class BookingWindow extends JPanel {
     private JComboBox<String> clientCombo, tourCombo;
     private Map<String, Integer> clientIds = new HashMap<>();
     private Map<String, Integer> tourIds = new HashMap<>();
+    private Map<String, Integer> serviceIds = new HashMap<>();
     private JLabel priceLabel;
+    private JLabel phoneLabel;
+    private JLabel faxLabel;
+    private JList<String> servicesList;
+    private DefaultListModel<String> servicesModel;
+    private int currentTourId = -1;
 
     public BookingWindow(DatabaseManager dbManager, User user) {
         this.dbManager = dbManager;
         this.user = user;
         setLayout(new BorderLayout());
 
-        // Количество строк зависит от роли пользователя
-        int rows = "admin".equals(user.getRole()) ? 4 : 3;
-        JPanel panel = new JPanel(new GridLayout(rows, 2, 10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        JPanel mainPanel = new JPanel(new BorderLayout());
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
 
-        // Компонент выбора клиента (только для администраторов)
-        if ("admin".equals(user.getRole())) {
-            panel.add(new JLabel("Выберите клиента:"));
-            clientCombo = new JComboBox<>();
-            loadClients();
-            panel.add(clientCombo);
-        } else {
-            // Для клиентов скрываем выбор клиента, но все равно загружаем данные
-            clientCombo = new JComboBox<>();
-            loadClients();
-        }
+        // Основные поля бронирования
+        JPanel basicFieldsPanel = new JPanel(new GridLayout(5, 2, 10, 10));
+        
+        // Компонент выбора клиента
+        basicFieldsPanel.add(new JLabel("Выберите клиента:"));
+        clientCombo = new JComboBox<>();
+        loadClients();
+        basicFieldsPanel.add(clientCombo);
 
         // Компонент выбора тура
-        panel.add(new JLabel("Выберите тур:"));
+        basicFieldsPanel.add(new JLabel("Выберите тур:"));
         tourCombo = new JComboBox<>();
         loadTours();
-        tourCombo.addActionListener(e -> updatePrice());
-        panel.add(tourCombo);
+        tourCombo.addActionListener(e -> {
+            updatePrice();
+            loadTourServices();
+            updateLocationInfo();
+        });
+        basicFieldsPanel.add(tourCombo);
 
         // Отображение цены
-        panel.add(new JLabel("Итоговая цена:"));
-        priceLabel = new JLabel("0.00");
-        panel.add(priceLabel);
+        basicFieldsPanel.add(new JLabel("Итоговая цена:"));
+        priceLabel = new JLabel("0.00 руб.");
+        basicFieldsPanel.add(priceLabel);
+
+        // Отображение контактной информации локации
+        basicFieldsPanel.add(new JLabel("Телефон локации:"));
+        phoneLabel = new JLabel("-");
+        basicFieldsPanel.add(phoneLabel);
+
+        basicFieldsPanel.add(new JLabel("Факс локации:"));
+        faxLabel = new JLabel("-");
+        basicFieldsPanel.add(faxLabel);
+
+        mainPanel.add(basicFieldsPanel, BorderLayout.NORTH);
+
+        // Панель выбора сервисов
+        JPanel servicesPanel = new JPanel(new BorderLayout());
+        servicesPanel.setBorder(BorderFactory.createTitledBorder("Выберите дополнительные услуги"));
+        
+        servicesModel = new DefaultListModel<>();
+        servicesList = new JList<>(servicesModel);
+        servicesList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        servicesList.setCellRenderer(new CheckboxListCellRenderer());
+        servicesList.addListSelectionListener(e -> updatePrice());
+        
+        JScrollPane servicesScrollPane = new JScrollPane(servicesList);
+        servicesScrollPane.setPreferredSize(new Dimension(400, 150));
+        servicesPanel.add(servicesScrollPane, BorderLayout.CENTER);
+
+        mainPanel.add(servicesPanel, BorderLayout.CENTER);
 
         // Кнопка подтверждения
         JButton submitButton = new JButton("Подтвердить бронирование");
         submitButton.addActionListener(e -> submitBooking());
-        panel.add(submitButton);
+        mainPanel.add(submitButton, BorderLayout.SOUTH);
 
-        add(panel, BorderLayout.CENTER);
+        add(mainPanel, BorderLayout.CENTER);
     }
 
     private void loadClients() {
-        try (Connection conn = dbManager.getConnection()) {
-            clientCombo.removeAllItems();
-            clientIds.clear();
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT id, full_name FROM public.clients ORDER BY full_name")) {
             
-            if ("admin".equals(user.getRole())) {
-                // Администратор видит всех клиентов
-                try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery("SELECT id, full_name FROM public.clients ORDER BY full_name")) {
-                    
-                    while (rs.next()) {
-                        int id = rs.getInt("id");
-                        String name = rs.getString("full_name");
-                        clientCombo.addItem(name);
-                        clientIds.put(name, id);
-                    }
-                }
-            } else {
-                // Клиент видит только себя
-                System.out.println("DEBUG: Ищем клиента для пользователя с ID " + user.getId() + " и ролью " + user.getRole());
-                int clientId = dbManager.getClientIdByUserId(user.getId());
-                if (clientId != -1) {
-                    try (PreparedStatement stmt = conn.prepareStatement(
-                            "SELECT id, full_name FROM public.clients WHERE id = ?")) {
-                        stmt.setInt(1, clientId);
-                        ResultSet rs = stmt.executeQuery();
-                        
-                        if (rs.next()) {
-                            String name = rs.getString("full_name");
-                            clientCombo.addItem(name);
-                            clientIds.put(name, clientId);
-                            System.out.println("DEBUG: Клиент " + name + " успешно загружен");
-                        }
-                    }
-                } else {
-                    System.out.println("DEBUG: Клиент не найден для пользователя " + user.getId());
-                    
-                    // Временное решение: создаем клиента автоматически
-                    try {
-                        int newClientId = createClientForUser(user.getId(), user.getUsername());
-                        if (newClientId != -1) {
-                            clientCombo.addItem(user.getUsername());
-                            clientIds.put(user.getUsername(), newClientId);
-                            System.out.println("DEBUG: Создан новый клиент с ID " + newClientId);
-                        } else {
-                            JOptionPane.showMessageDialog(this, 
-                                "Клиентская запись не найдена и не может быть создана.\n\n" +
-                                "Отладочная информация:\n" +
-                                "ID пользователя: " + user.getId() + "\n" +
-                                "Имя пользователя: " + user.getUsername() + "\n" +
-                                "Роль: " + user.getRole() + "\n\n" +
-                                "Обратитесь к администратору для решения проблемы.", 
-                                "Ошибка", 
-                                JOptionPane.ERROR_MESSAGE);
-                        }
-                    } catch (SQLException ex) {
-                        JOptionPane.showMessageDialog(this, 
-                            "Ошибка при создании клиентской записи: " + ex.getMessage(), 
-                            "Ошибка", 
-                            JOptionPane.ERROR_MESSAGE);
-                    }
-                }
+            while (rs.next()) {
+                String fullName = rs.getString("full_name");
+                int id = rs.getInt("id");
+                clientIds.put(fullName, id);
+                clientCombo.addItem(fullName);
             }
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, 
-                "Ошибка при загрузке клиентов: " + ex.getMessage(), 
+                "Ошибка при загрузке списка клиентов: " + ex.getMessage(), 
                 "Ошибка", 
                 JOptionPane.ERROR_MESSAGE);
         }
@@ -152,18 +134,96 @@ public class BookingWindow extends JPanel {
         }
     }
 
+    private void loadTourServices() {
+        String selectedTour = (String) tourCombo.getSelectedItem();
+        if (selectedTour != null) {
+            currentTourId = tourIds.get(selectedTour);
+            servicesModel.clear();
+            serviceIds.clear();
+            
+            try (Connection conn = dbManager.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT * FROM public.get_tour_services(?)")) {
+                
+                stmt.setInt(1, currentTourId);
+                ResultSet rs = stmt.executeQuery();
+                
+                while (rs.next()) {
+                    int serviceId = rs.getInt("service_id");
+                    String serviceName = rs.getString("service_name");
+                    double price = rs.getDouble("price");
+                    String displayName = String.format("%s (%.2f руб.)", serviceName, price);
+                    
+                    serviceIds.put(displayName, serviceId);
+                    servicesModel.addElement(displayName);
+                }
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(this, 
+                    "Ошибка при загрузке сервисов тура: " + ex.getMessage(), 
+                    "Ошибка", 
+                    JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void updateLocationInfo() {
+        String selectedTour = (String) tourCombo.getSelectedItem();
+        if (selectedTour != null) {
+            try {
+                int tourId = tourIds.get(selectedTour);
+                Map<String, String> locationInfo = dbManager.getTourLocationInfo(tourId);
+                
+                String phone = locationInfo.get("phone");
+                String fax = locationInfo.get("fax");
+                
+                phoneLabel.setText(phone != null ? phone : "-");
+                faxLabel.setText(fax != null ? fax : "-");
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(this, 
+                    "Ошибка при загрузке информации о локации: " + ex.getMessage(), 
+                    "Ошибка", 
+                    JOptionPane.ERROR_MESSAGE);
+            }
+        } else {
+            phoneLabel.setText("-");
+            faxLabel.setText("-");
+        }
+    }
+
     private void updatePrice() {
         String selectedTour = (String) tourCombo.getSelectedItem();
         if (selectedTour != null) {
-            try (Connection conn = dbManager.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT (price_per_day * days) as total_price " +
-                     "FROM public.tours WHERE id = ?")) {
+            try {
+                int tourId = tourIds.get(selectedTour);
                 
-                stmt.setInt(1, tourIds.get(selectedTour));
-                ResultSet rs = stmt.executeQuery();
-                if (rs.next()) {
-                    double totalPrice = rs.getDouble("total_price");
+                // Получаем базовую цену тура
+                try (Connection conn = dbManager.getConnection();
+                     PreparedStatement stmt = conn.prepareStatement(
+                         "SELECT price_per_day, days FROM public.tours WHERE id = ?")) {
+                    
+                    stmt.setInt(1, tourId);
+                    ResultSet rs = stmt.executeQuery();
+                    
+                    double basePrice = 0.0;
+                    if (rs.next()) {
+                        double pricePerDay = rs.getDouble("price_per_day");
+                        int days = rs.getInt("days");
+                        basePrice = pricePerDay * days;
+                    }
+                    
+                    // Получаем цены выбранных сервисов
+                    List<Integer> selectedServiceIds = new ArrayList<>();
+                    for (int i = 0; i < servicesList.getModel().getSize(); i++) {
+                        if (servicesList.isSelectedIndex(i)) {
+                            String serviceDisplayName = servicesList.getModel().getElementAt(i);
+                            selectedServiceIds.add(serviceIds.get(serviceDisplayName));
+                        }
+                    }
+                    
+                    int[] serviceIdsArray = selectedServiceIds.stream().mapToInt(i -> i).toArray();
+                    double servicesPrice = dbManager.getServicesTotalPrice(serviceIdsArray);
+                    
+                    double totalPrice = basePrice + servicesPrice;
                     priceLabel.setText(String.format("%.2f руб.", totalPrice));
                 }
             } catch (SQLException ex) {
@@ -179,50 +239,31 @@ public class BookingWindow extends JPanel {
         String selectedClient = (String) clientCombo.getSelectedItem();
         String selectedTour = (String) tourCombo.getSelectedItem();
 
-        // Проверяем выбор в зависимости от роли
-        if ("admin".equals(user.getRole())) {
-            if (selectedClient == null || selectedTour == null) {
-                JOptionPane.showMessageDialog(this, 
-                    "Пожалуйста, выберите клиента и тур", 
-                    "Предупреждение", 
-                    JOptionPane.WARNING_MESSAGE);
-                return;
-            }
-        } else {
-            if (selectedTour == null) {
-                JOptionPane.showMessageDialog(this, 
-                    "Пожалуйста, выберите тур", 
-                    "Предупреждение", 
-                    JOptionPane.WARNING_MESSAGE);
-                return;
-            }
+        if (selectedClient == null || selectedTour == null) {
+            JOptionPane.showMessageDialog(this, 
+                "Пожалуйста, выберите клиента и тур", 
+                "Предупреждение", 
+                JOptionPane.WARNING_MESSAGE);
+            return;
         }
 
-        try (Connection conn = dbManager.getConnection()) {
-            int clientId;
+        try {
+            int clientId = clientIds.get(selectedClient);
             int tourId = tourIds.get(selectedTour);
-            
-            if ("admin".equals(user.getRole())) {
-                clientId = clientIds.get(selectedClient);
-            } else {
-                // Для клиентов получаем их собственный ID
-                clientId = dbManager.getClientIdByUserId(user.getId());
-            }
 
-            // Используем новый метод бронирования с проверкой прав
-            try {
-                dbManager.makeBooking(clientId, tourId, user.getId(), user.getRole());
-            } catch (SQLException e) {
-                if (e.getMessage().contains("Недостаточно прав") || e.getMessage().contains("can_user_book_for_client")) {
-                    JOptionPane.showMessageDialog(this, 
-                        "У вас нет прав для этой операции! Клиенты могут бронировать туры только для себя.", 
-                        "Ошибка доступа", 
-                        JOptionPane.ERROR_MESSAGE);
-                    return;
-                } else {
-                    throw e;
+            // Получаем выбранные сервисы
+            List<Integer> selectedServiceIds = new ArrayList<>();
+            for (int i = 0; i < servicesList.getModel().getSize(); i++) {
+                if (servicesList.isSelectedIndex(i)) {
+                    String serviceDisplayName = servicesList.getModel().getElementAt(i);
+                    selectedServiceIds.add(serviceIds.get(serviceDisplayName));
                 }
             }
+
+            Integer[] serviceIdsArray = selectedServiceIds.toArray(new Integer[0]);
+
+            // Используем новый метод бронирования с сервисами
+            dbManager.bookTour(clientId, tourId, user.getId(), user.getRole(), serviceIdsArray);
 
             JOptionPane.showMessageDialog(this, 
                 "Бронирование успешно создано!", 
@@ -230,10 +271,12 @@ public class BookingWindow extends JPanel {
                 JOptionPane.INFORMATION_MESSAGE);
 
             // Сбрасываем выбор
-            if ("admin".equals(user.getRole())) {
-                clientCombo.setSelectedIndex(0);
-            }
+            clientCombo.setSelectedIndex(0);
             tourCombo.setSelectedIndex(0);
+            servicesList.clearSelection();
+            priceLabel.setText("0.00 руб.");
+            phoneLabel.setText("-");
+            faxLabel.setText("-");
             
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, 
@@ -243,22 +286,16 @@ public class BookingWindow extends JPanel {
         }
     }
 
-    // Временный метод для создания клиента для пользователя
-    private int createClientForUser(int userId, String username) throws SQLException {
-        try (Connection conn = dbManager.getConnection()) {
-            // Создаем клиента с минимальными данными
-            String sql = "INSERT INTO public.clients (full_name, user_id) VALUES (?, ?) RETURNING id";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, username); // Используем username как имя
-                stmt.setInt(2, userId);
-                ResultSet rs = stmt.executeQuery();
-                if (rs.next()) {
-                    int newClientId = rs.getInt("id");
-                    conn.commit();
-                    return newClientId;
-                }
-            }
+    // Внутренний класс для отображения чекбоксов в списке
+    private static class CheckboxListCellRenderer extends JCheckBox implements ListCellRenderer<String> {
+        @Override
+        public Component getListCellRendererComponent(JList<? extends String> list, String value, int index,
+                boolean isSelected, boolean cellHasFocus) {
+            setText(value);
+            setSelected(isSelected);
+            setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+            setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+            return this;
         }
-        return -1;
     }
 }

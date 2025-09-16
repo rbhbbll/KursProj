@@ -57,3 +57,4 @@ UPDATE public.clients
 SET user_id = (SELECT id FROM public.users WHERE username = 'client_' || public.clients.id)
 WHERE user_id IS NULL;
 */
+

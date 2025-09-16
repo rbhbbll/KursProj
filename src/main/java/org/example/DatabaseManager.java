@@ -6,9 +6,12 @@ import java.sql.*;
 import java.util.Vector;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.math.BigDecimal;
 
 public class DatabaseManager {
-    private static final String URL = "jdbc:postgresql://10.5.114.135:5432/kirill123";
+    private static final String URL = "jdbc:postgresql://10.5.114.149:5432/kirill123";
     private static final String USER = "alex";
     private static final String PASSWORD = "1234";
     private String currentUserRole;
@@ -232,6 +235,242 @@ public class DatabaseManager {
                 conn.commit();
                 return true;
             }
+        }
+    }
+
+    // Удаление тура (только для администраторов)
+    public boolean deleteTour(int tourId, int userId, String userRole) throws SQLException {
+        try (Connection conn = getConnection()) {
+            String sql = "CALL public.delete_tour(?, ?, ?)";
+            try (CallableStatement stmt = conn.prepareCall(sql)) {
+                stmt.setInt(1, tourId);
+                stmt.setInt(2, userId);
+                stmt.setString(3, userRole);
+                stmt.execute();
+                conn.commit();
+                return true;
+            }
+        } catch (SQLException ex) {
+            if (ex.getMessage().contains("Недостаточно прав") || ex.getMessage().contains("не найден")) {
+                throw new SQLException("Ошибка удаления тура: " + ex.getMessage());
+            }
+            throw ex;
+        }
+    }
+
+    // Получить все доступные сервисы
+    public ResultSet getAllServices() throws SQLException {
+        try (Connection conn = getConnection()) {
+            String sql = "SELECT id, name, price FROM public.services ORDER BY name";
+            return conn.createStatement().executeQuery(sql);
+        }
+    }
+
+    // Получить сервисы конкретного тура
+    public ResultSet getTourServices(int tourId) throws SQLException {
+        try (Connection conn = getConnection()) {
+            String sql = "SELECT * FROM public.get_tour_services(?)";
+            PreparedStatement stmt = conn.prepareStatement(sql);
+            stmt.setInt(1, tourId);
+            return stmt.executeQuery();
+        }
+    }
+
+    // Получить сервисы тура как List<Map> для удобства использования в UI
+    public List<Map<String, Object>> getTourServicesAsList(int tourId) throws SQLException {
+        List<Map<String, Object>> services = new ArrayList<>();
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement("SELECT * FROM public.get_tour_services(?)")) {
+            stmt.setInt(1, tourId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> service = new HashMap<>();
+                    service.put("service_id", rs.getInt("service_id"));
+                    service.put("service_name", rs.getString("service_name"));
+                    service.put("price", rs.getDouble("price"));
+                    services.add(service);
+                }
+            }
+        }
+        return services;
+    }
+
+    // Получить все достопримечательности
+    public ResultSet getAllAttractions() throws SQLException {
+        try (Connection conn = getConnection()) {
+            String sql = "SELECT id, name FROM public.attractions ORDER BY name";
+            return conn.createStatement().executeQuery(sql);
+        }
+    }
+
+    // Получить информацию о локации тура (phone, fax)
+    public Map<String, String> getTourLocationInfo(int tourId) throws SQLException {
+        Map<String, String> locationInfo = new HashMap<>();
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "SELECT l.phone, l.fax FROM public.locations l " +
+                 "JOIN public.tours t ON l.id = t.location_id " +
+                 "WHERE t.id = ?")) {
+            stmt.setInt(1, tourId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    locationInfo.put("phone", rs.getString("phone"));
+                    locationInfo.put("fax", rs.getString("fax"));
+                }
+            }
+        }
+        return locationInfo;
+    }
+
+    // Обновленный метод добавления тура с поддержкой сервисов и достопримечательностей
+    public void addTour(String name, int tourTypeId, int locationId, double pricePerDay, int days, 
+                       Integer[] serviceIds, Integer[] attractionIds) throws SQLException {
+        try (Connection conn = getConnection()) {
+            // Сначала удаляем старую процедуру и создаем новую
+            try (Statement dropStmt = conn.createStatement()) {
+                dropStmt.execute("DROP PROCEDURE IF EXISTS public.add_tour_full(character varying, integer, integer, double precision, integer, integer[], integer[])");
+            }
+            
+            try (Statement createStmt = conn.createStatement()) {
+                createStmt.execute("CREATE OR REPLACE PROCEDURE public.add_tour_full(IN p_name VARCHAR, IN p_tour_type_id INTEGER, IN p_location_id INTEGER, IN p_price NUMERIC, IN p_days INTEGER, IN p_service_ids INTEGER[], IN p_attraction_ids INTEGER[]) " +
+                    "LANGUAGE plpgsql " +
+                    "AS $$ " +
+                    "DECLARE v_tour_id INT; " +
+                    "BEGIN " +
+                    "INSERT INTO public.tours (name, tour_type_id, location_id, price, days) " +
+                    "VALUES (p_name, p_tour_type_id, p_location_id, p_price, p_days) " +
+                    "RETURNING id INTO v_tour_id; " +
+                    "IF p_service_ids IS NOT NULL THEN " +
+                    "INSERT INTO public.tour_services (tour_id, service_id) " +
+                    "SELECT v_tour_id, UNNEST(p_service_ids); " +
+                    "END IF; " +
+                    "IF p_attraction_ids IS NOT NULL THEN " +
+                    "INSERT INTO public.tour_attractions (tour_id, attraction_id) " +
+                    "SELECT v_tour_id, UNNEST(p_attraction_ids); " +
+                    "END IF; " +
+                    "END; $$");
+            }
+            
+            String sql = "CALL public.add_tour_full(?, ?, ?, ?, ?, ?, ?)";
+            try (CallableStatement stmt = conn.prepareCall(sql)) {
+                stmt.setString(1, name);
+                stmt.setInt(2, tourTypeId);
+                stmt.setInt(3, locationId);
+                stmt.setBigDecimal(4, new BigDecimal(String.valueOf(pricePerDay)));
+                stmt.setInt(5, days);
+                
+                Array servicesArray = serviceIds != null && serviceIds.length > 0 ? 
+                    conn.createArrayOf("integer", serviceIds) : null;
+                stmt.setArray(6, servicesArray);
+                
+                Array attractionsArray = attractionIds != null && attractionIds.length > 0 ? 
+                    conn.createArrayOf("integer", attractionIds) : null;
+                stmt.setArray(7, attractionsArray);
+                
+                stmt.execute();
+                conn.commit();
+            }
+        } catch (SQLException ex) {
+            if (ex.getMessage().contains("не существует") || ex.getMessage().contains("конфликт типов")) {
+                throw new SQLException("Ошибка процедуры: " + ex.getMessage());
+            }
+            throw ex;
+        }
+    }
+
+    // Обновленный метод бронирования с выбором услуг
+    public void bookTour(int clientId, int tourId, int userId, String userRole, Integer[] serviceIds) throws SQLException {
+        try (Connection conn = getConnection()) {
+            // Сначала удаляем старую процедуру и создаем новую
+            try (Statement dropStmt = conn.createStatement()) {
+                dropStmt.execute("DROP PROCEDURE IF EXISTS public.make_booking(integer, integer, integer, varchar, integer[])");
+            }
+            
+            try (Statement createStmt = conn.createStatement()) {
+                createStmt.execute("CREATE OR REPLACE PROCEDURE public.make_booking(IN p_client_id INTEGER, IN p_tour_id INTEGER, IN p_user_id INTEGER, IN p_user_role VARCHAR, IN p_service_ids INTEGER[] DEFAULT NULL) " +
+                    "LANGUAGE plpgsql " +
+                    "AS $$ " +
+                    "DECLARE v_client_id INTEGER; " +
+                    "BEGIN " +
+                    "IF NOT public.can_user_book_for_client(p_user_id, p_client_id, p_user_role) THEN " +
+                    "RAISE EXCEPTION 'Недостаточно прав для бронирования за этого клиента'; " +
+                    "END IF; " +
+                    "INSERT INTO public.bookings (client_id, tour_id) VALUES (p_client_id, p_tour_id); " +
+                    "IF p_service_ids IS NOT NULL THEN " +
+                    "RAISE NOTICE 'Услуги % выбраны для бронирования', p_service_ids; " +
+                    "END IF; " +
+                    "END; $$");
+            }
+            
+            String sql = "CALL public.make_booking(?, ?, ?, ?, ?)";
+            try (CallableStatement stmt = conn.prepareCall(sql)) {
+                stmt.setInt(1, clientId);
+                stmt.setInt(2, tourId);
+                stmt.setInt(3, userId);
+                stmt.setString(4, userRole);
+                
+                Array servicesArray = serviceIds != null && serviceIds.length > 0 ? 
+                    conn.createArrayOf("integer", serviceIds) : null;
+                stmt.setArray(5, servicesArray);
+                
+                stmt.execute();
+                conn.commit();
+            }
+        } catch (SQLException ex) {
+            if (ex.getMessage().contains("не существует") || ex.getMessage().contains("конфликт типов")) {
+                throw new SQLException("Ошибка процедуры бронирования: " + ex.getMessage());
+            }
+            throw ex;
+        }
+    }
+
+    // Получить туры с информацией об услугах
+    public ResultSet getToursWithServices() throws SQLException {
+        try (Connection conn = getConnection()) {
+            String sql = "SELECT t.id, t.name, tt.name AS type, l.city AS location, l.country, " +
+                        "t.price_per_day, t.days, " +
+                        "ARRAY_TO_STRING((SELECT ARRAY_AGG(s.service_name) FROM get_tour_services(t.id) s), ', ') AS services " +
+                        "FROM tours t " +
+                        "JOIN tour_types tt ON t.tour_type_id = tt.id " +
+                        "JOIN locations l ON t.location_id = l.id";
+            return conn.createStatement().executeQuery(sql);
+        }
+    }
+
+    // Получить информацию о туре для расчета цены с услугами
+    public ResultSet getTourPriceInfo(int tourId) throws SQLException {
+        try (Connection conn = getConnection()) {
+            String sql = "SELECT price_per_day, days FROM public.tours WHERE id = ?";
+            PreparedStatement stmt = conn.prepareStatement(sql);
+            stmt.setInt(1, tourId);
+            return stmt.executeQuery();
+        }
+    }
+
+    // Получить цены выбранных сервисов
+    public double getServicesTotalPrice(int[] serviceIds) throws SQLException {
+        if (serviceIds == null || serviceIds.length == 0) {
+            return 0.0;
+        }
+        
+        try (Connection conn = getConnection()) {
+            StringBuilder sql = new StringBuilder("SELECT SUM(price) FROM public.services WHERE id IN (");
+            for (int i = 0; i < serviceIds.length; i++) {
+                if (i > 0) sql.append(",");
+                sql.append("?");
+            }
+            sql.append(")");
+            
+            PreparedStatement stmt = conn.prepareStatement(sql.toString());
+            for (int i = 0; i < serviceIds.length; i++) {
+                stmt.setInt(i + 1, serviceIds[i]);
+            }
+            
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getDouble(1);
+            }
+            return 0.0;
         }
     }
 }
