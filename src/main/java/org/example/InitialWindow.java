@@ -137,18 +137,8 @@ public class InitialWindow extends JFrame {
                 try {
                     Date birthDate = Date.valueOf(birthDateStr);
                     
-                    // First register the user
-                    dbManager.registerUser(conn, username, password, role);
-                    
-                    // Then register the client
-                    try (var cstmt = conn.prepareCall("CALL public.register_new_client(?, ?, ?, ?, ?)")) {
-                        cstmt.setString(1, fullName);
-                        cstmt.setString(2, phone);
-                        cstmt.setString(3, email);
-                        cstmt.setString(4, passport);
-                        cstmt.setDate(5, birthDate);
-                        cstmt.execute();
-                    }
+                    // Регистрируем клиента с привязкой к пользователю
+                    dbManager.registerClientWithUser(conn, username, password, fullName, phone, email, passport, birthDate);
                 } catch (IllegalArgumentException ex) {
                     JOptionPane.showMessageDialog(this, "Неверный формат даты. Используйте ГГГГ-ММ-ДД.", "Ошибка", JOptionPane.ERROR_MESSAGE);
                     return;

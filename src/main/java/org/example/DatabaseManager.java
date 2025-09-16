@@ -8,9 +8,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DatabaseManager {
-    private static final String URL = "jdbc:postgresql://172.20.7.54:5432/tyr";
-    private static final String USER = "st2092";
-    private static final String PASSWORD = "pwd_2092";
+    private static final String URL = "jdbc:postgresql://10.5.114.135:5432/kirill123";
+    private static final String USER = "alex";
+    private static final String PASSWORD = "1234";
     private String currentUserRole;
 
     public Connection getConnection() throws SQLException {
@@ -58,11 +58,79 @@ public class DatabaseManager {
         }
     }
 
+    // Регистрация клиента с привязкой к пользователю
+    public void registerClientWithUser(Connection conn, String username, String password, String fullName, 
+                                     String phone, String email, String passport, java.sql.Date birthDate) throws SQLException {
+        // Сначала регистрируем пользователя
+        registerUser(conn, username, password, "client");
+        
+        // Получаем ID только что созданного пользователя
+        int userId;
+        try (PreparedStatement stmt = conn.prepareStatement(
+                "SELECT id FROM public.users WHERE username = ?")) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                userId = rs.getInt("id");
+            } else {
+                throw new SQLException("Не удалось найти созданного пользователя");
+            }
+        }
+        
+        // Регистрируем клиента через обновленную процедуру
+        registerClient(fullName, phone, email, passport, birthDate, userId);
+    }
+
+    // Обновленный метод регистрации клиента с использованием новой процедуры
+    public void registerClient(String fullName, String phone, String email, String passport, java.sql.Date birthDate, int userId) throws SQLException {
+        String sql = "CALL public.register_new_client(?, ?, ?, ?, ?, ?)";
+        try (Connection conn = getConnection();
+             CallableStatement stmt = conn.prepareCall(sql)) {
+            stmt.setString(1, fullName);
+            stmt.setString(2, phone);
+            stmt.setString(3, email);
+            stmt.setString(4, passport);
+            stmt.setDate(5, birthDate);
+            stmt.setInt(6, userId);
+            stmt.execute();
+        }
+    }
+
     public void makeBooking(Connection conn, int clientId, int tourId) throws SQLException {
         try (CallableStatement cstmt = conn.prepareCall("CALL public.make_booking(?, ?)")) {
             cstmt.setInt(1, clientId);
             cstmt.setInt(2, tourId);
             cstmt.execute();
+        }
+    }
+
+    // Обновленный метод бронирования с проверкой прав
+    public void makeBooking(int clientId, int tourId, int userId, String userRole) throws SQLException {
+        String sql = "CALL public.make_booking(?, ?, ?, ?)";
+        try (Connection conn = getConnection();
+             CallableStatement stmt = conn.prepareCall(sql)) {
+            stmt.setInt(1, clientId);
+            stmt.setInt(2, tourId);
+            stmt.setInt(3, userId);
+            stmt.setString(4, userRole);
+            stmt.execute();
+        }
+    }
+
+    // Получить ID клиента по ID пользователя
+    public int getClientIdByUserId(int userId) throws SQLException {
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT id FROM public.clients WHERE user_id = ?")) {
+            stmt.setInt(1, userId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                int clientId = rs.getInt("id");
+                System.out.println("DEBUG: Найден клиент с ID " + clientId + " для пользователя " + userId);
+                return clientId;
+            }
+            System.out.println("DEBUG: Клиент не найден для пользователя " + userId);
+            return -1; // Клиент не найден
         }
     }
 
